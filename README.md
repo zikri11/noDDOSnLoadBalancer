@@ -89,7 +89,7 @@ ryu-manager load_balancer.py
 ### 2. Jalankan Topologi Mininet
 
 ```
-sudo mn --topo single,3 --controller remote --switch ovsk,protocols=OpenFlow13
+sudo mn --topo single,3 --controller remote --switch ovsk,protocols=OpenFlow13 --mac
 ```
 
 ---
