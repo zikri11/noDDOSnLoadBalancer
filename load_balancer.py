@@ -14,6 +14,9 @@ from ryu.lib.packet import ethernet
 from ryu.lib.packet import arp
 from ryu.lib.packet import ipv4
 
+from ryu.lib.packet import tcp
+from ryu.lib.packet import icmp
+
 import time
 
 
@@ -229,18 +232,45 @@ class SDNFirewallLoadBalancer(app_manager.RyuApp):
 
                 return
 
-            self.logger.info("Firewall : traffic normal")
+            # ==========================================
+            # LOAD BALANCER & TRAFFIC STEERING
+            # ==========================================
+            tcp_pkt = pkt.get_protocol(tcp.tcp)
+            icmp_pkt = pkt.get_protocol(icmp.icmp)
 
-            server_ip = self.pilih_server()
+            if tcp_pkt and tcp_pkt.dst_port == 80:
+                # 1. LOAD BALANCER: Trafik Web Publik (Port 80) dibagi rata
+                server_ip = self.pilih_server()
+                self.logger.info("[LOAD BALANCER] Trafik Web diarahkan ke %s", server_ip)
+
+            elif tcp_pkt and tcp_pkt.dst_port == 22:
+                # 2. TRAFFIC STEERING: Trafik SSH (Port 22) HANYA ke Server 1
+                server_ip = "10.0.0.2"
+                self.logger.info("[TRAFFIC STEERING] Trafik SSH dipaksa ke %s", server_ip)
+            
+            elif icmp_pkt:
+                # 3. TRAFFIC STEERING: Trafik Ping dipaksa HANYA ke Server 2
+                server_ip = "10.0.0.3"
+                self.logger.info("[TRAFFIC STEERING] Paket ICMP dipaksa ke %s", server_ip)
+            
+            else:
+                # Default untuk trafik lainnya
+                server_ip = self.pilih_server()
+            # ==========================================
 
             server_mac = self.SERVER_POOL[server_ip]
 
-            self.logger.info("LoadBalancer mengarahkan ke server %s",
-                             server_ip)
+            if server_ip == "10.0.0.2":
+                out_port = 2
+            elif server_ip == "10.0.0.3":
+                out_port = 3
+            else:
+                out_port = 2
 
             actions = [
                 parser.OFPActionSetField(eth_dst=server_mac),
-                parser.OFPActionOutput(2)
+                parser.OFPActionSetField(ipv4_dst=server_ip),
+                parser.OFPActionOutput(out_port)
             ]
 
             out = parser.OFPPacketOut(
@@ -251,3 +281,39 @@ class SDNFirewallLoadBalancer(app_manager.RyuApp):
                 data=msg.data)
 
             datapath.send_msg(out)
+
+            return
+
+        # ==========================================
+        # HANDLE REVERSE TRAFFIC (Server -> Client)
+        # ==========================================
+        if ip_pkt and ip_pkt.src in ["10.0.0.2", "10.0.0.3"]:
+            actions = [
+                parser.OFPActionSetField(eth_src=self.LB_MAC),
+                parser.OFPActionSetField(ipv4_src=self.VIP),
+                parser.OFPActionOutput(1)
+            ]
+
+            out = parser.OFPPacketOut(
+                datapath=datapath,
+                buffer_id=ofproto.OFP_NO_BUFFER,
+                in_port=in_port,
+                actions=actions,
+                data=msg.data)
+
+            datapath.send_msg(out)
+            return
+
+        # ==========================================
+        # NORMAL FLOODING
+        # ==========================================
+        actions = [parser.OFPActionOutput(ofproto.OFPP_FLOOD)]
+        out = parser.OFPPacketOut(
+            datapath=datapath,
+            buffer_id=ofproto.OFP_NO_BUFFER,
+            in_port=in_port,
+            actions=actions,
+            data=msg.data)
+        
+        datapath.send_msg(out)
+

@@ -89,7 +89,7 @@ ryu-manager load_balancer.py
 ### 2. Jalankan Topologi Mininet
 
 ```
-sudo mn --topo single,3 --controller remote --switch ovsk,protocols=OpenFlow13
+sudo mn --topo single,3 --controller remote --switch ovsk,protocols=OpenFlow13 --mac
 ```
 
 ---
@@ -114,6 +114,24 @@ h1 curl 10.0.0.100
 ```
 
 Controller akan memilih server backend secara **bergantian (Round Robin)**.
+
+---
+
+### 5. Pengujian Traffic Steering
+
+Fitur ini memaksa tipe trafik tertentu ke server spesifik berdasarkan protokol dan port:
+
+#### Trafik SSH (Port 22): Dipaksa ke Server 1 (10.0.0.2).
+
+```
+h1 nc -zv 10.0.0.100 22
+```
+
+#### Trafik ICMP (Ping): Dipaksa ke Server 2 (10.0.0.3)
+
+```
+h1 ping -c 4 10.0.0.100
+```
 
 ---
 
